@@ -2,6 +2,8 @@
 using RestSharp.Deserializers;
 using System;
 using System.Linq;
+using System.Net;
+using System.Security.Authentication;
 
 public class BaseClient : RestClient
 {
@@ -38,38 +40,55 @@ public class BaseClient : RestClient
         return response;
     }
 
-    public T Get<T>(IRestRequest request) where T : new()
+    public T Get<T>(IRestRequest request, HttpStatusCode expectedStatusCode = HttpStatusCode.OK) where T : new()
     {
         var response = Execute<T>(request);
-        if (response.StatusCode == System.Net.HttpStatusCode.OK)
-        {
-            return response.Data;
-        }
-        else
-        {
-            LogError(BaseUrl, request, response);
-            return default(T);
-        }
+        CheckResponseStatusCode(request, response, expectedStatusCode);
+        return response.Data;
     }
 
-    public T GetFromCache<T>(IRestRequest request, string cacheKey) where T : class, new()
+    public T GetFromCache<T>(IRestRequest request, string cacheKey, HttpStatusCode expectedStatusCode = HttpStatusCode.OK) where T : class, new()
     {
         var item = _cache.Get<T>(cacheKey);
         if (item == null)
         {
             var response = Execute<T>(request);
-            if (response.StatusCode == System.Net.HttpStatusCode.OK)
-            {
-                _cache.Set(cacheKey, response.Data);
-                item = response.Data;
-            }
-            else
-            {
-                LogError(BaseUrl, request, response);
-                return default(T);
-            }
+            CheckResponseStatusCode(request, response, expectedStatusCode);
+
+            _cache.Set(cacheKey, response.Data);
+            item = response.Data;
         }
         return item;
+    }
+
+    private void CheckResponseStatusCode(IRestRequest request, IRestResponse response, HttpStatusCode expectedStatusCode)
+    {
+        if (response.StatusCode == expectedStatusCode) return;
+
+            switch (response.StatusCode)
+        {
+            case HttpStatusCode.OK:
+                LogError(BaseUrl, request, response);
+                throw new WebException($"Expected {expectedStatusCode.ToString()}, but got: 200 - Success! : {response.ErrorMessage} {response.Content}");
+            case HttpStatusCode.BadRequest:
+                LogError(BaseUrl, request, response);
+                throw new WebException($"400 - Bad Request! : {response.ErrorMessage} {response.Content}");
+            case HttpStatusCode.Unauthorized:
+                LogError(BaseUrl, request, response);
+                throw new AuthenticationException($"401 - Not Authorized! : {response.ErrorMessage} {response.Content}");
+            case (HttpStatusCode)422: // Unprocessable:
+                LogError(BaseUrl, request, response);
+                throw new WebException($"422 - Unprocessable! : {response.ErrorMessage} {response.Content}");
+            case HttpStatusCode.InternalServerError:
+                LogError(BaseUrl, request, response);
+                throw new WebException($"500 - Internal Server Error! : {response.ErrorMessage} {response.Content}");
+
+            //ToDo: add more exception cases
+
+            default:
+                LogError(BaseUrl, request, response);
+                throw new Exception($"Unknown Exception! : {response.ErrorMessage} {response.Content}");
+        }
     }
 
     private void LogError(Uri BaseUrl, IRestRequest request, IRestResponse response)
