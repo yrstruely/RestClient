@@ -59,6 +59,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BaseClient.cs" />
+    <Compile Include="BaseRequest.cs" />
     <Compile Include="ICacheService.cs" />
     <Compile Include="IErrorLogger.cs" />
     <Compile Include="JsonSerializer.cs" />
